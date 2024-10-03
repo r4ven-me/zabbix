@@ -1,0 +1,213 @@
+---
+
+### NETWORKS ###
+networks:
+  zbx_net_frontend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
+      com.docker.network.bridge.name: "br-zbx-front"
+
+  zbx_net_backend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
+      com.docker.network.bridge.name: "br-zbx-back"
+    internal: true
+
+### SERVICES ###
+services:
+
+  postgres-server:
+    image: timescale/timescaledb:2.15.3-pg16
+    container_name: postgres-server
+    restart: on-failure
+    stop_grace_period: 1m
+    user: postgres:postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '0.70'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    hostname: postgres-server
+#   command: -c ssl=on -c ssl_cert_file=/run/secrets/server-cert.pem -c ssl_key_file=/run/secrets/server-key.pem -c ssl_ca_file=/run/secrets/root-ca.pem
+    env_file:
+      - ./env/.env_db
+    secrets:
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./postgres_data/:/var/lib/postgresql/data/:rw
+      # - ./env/.ZBX_DB_CA_FILE:/run/secrets/root-ca.pem:ro
+      # - ./env/.ZBX_DB_CERT_FILE:/run/secrets/server-cert.pem:ro
+      # - ./env/.ZBX_DB_KEY_FILE:/run/secrets/server-key.pem:ro
+    networks:
+      zbx_net_backend:
+        aliases:
+          - postgres-server
+          - postgres
+
+  zabbix-server:
+    depends_on:
+      - postgres-server
+    image: zabbix/zabbix-server-pgsql:alpine-7.0.3
+    # image: zabbix/zabbix-server-pgsql:alpine-7.0-latest
+    # image: r4venme/zabbix-server-pgsql:alpine-7.0.3
+    container_name: zabbix-server
+    restart: on-failure
+    stop_grace_period: 30s
+    user: zabbix:zabbix
+    cap_add:
+      - NET_RAW
+      #- NET_BIND_SERVICE
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+    deploy:
+      resources:
+        limits:
+          cpus: '0.70'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    env_file:
+      - ./env/.env_db
+      - ./env/.env_srv
+    secrets:
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+    sysctls:
+      - net.ipv4.ip_local_port_range=1024 65000
+      - net.ipv4.conf.all.accept_redirects=0
+      - net.ipv4.conf.all.secure_redirects=0
+      - net.ipv4.conf.all.send_redirects=0
+    hostname: zabbix-server
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      # - ./zabbix_data/server/alertscripts/zbxTelegram_config.py:/usr/lib/zabbix/alertscripts/zbxTelegram_config.py
+      # - ./zabbix_data/server/alertscripts/:/usr/lib/zabbix/alertscripts/
+      # - ./zabbix_data/server/externalscripts/:/usr/lib/zabbix/externalscripts/
+      # - ./zabbix_data/server/dbscripts/:/var/lib/zabbix/dbscripts/
+      # - ./zabbix_data/server/export/:/var/lib/zabbix/export/
+      # - ./zabbix_data/server/modules/:/var/lib/zabbix/modules/
+      # - ./zabbix_data/server/enc/:/var/lib/zabbix/enc/
+      # - ./zabbix_data/server/ssh_keys/:/var/lib/zabbix/ssh_keys/
+      # - ./zabbix_data/server/mibs/:/var/lib/zabbix/mibs/
+      # - ./zabbix_data/server/snmptraps/:/var/lib/zabbix/snmptraps/
+      # - ./env/.ZBX_DB_CA_FILE:/run/secrets/root-ca.pem:ro
+      # - ./env/.ZBX_DB_CERT_FILE:/run/secrets/client-cert.pem:ro
+      # - ./env/.ZBX_DB_KEY_FILE:/run/secrets/client-key.pem:ro
+    ports:
+      - 127.0.0.1:10051:10051
+    # ports:
+    #   - 10.11.11.50:10051:10051
+    networks:
+      zbx_net_frontend:
+        aliases:
+          - zabbix-server
+          - zabbix
+      zbx_net_backend:
+        aliases:
+          - zabbix-server
+          - zabbix
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0.3
+    # image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0-latest
+    depends_on:
+      - postgres-server
+      - zabbix-server
+    container_name: zabbix-web
+    restart: on-failure
+    stop_grace_period: 10s
+    user: zabbix:zabbix
+    deploy:
+      resources:
+        limits:
+          cpus: '0.70'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    env_file:
+      - ./env/.env_db
+      - ./env/.env_web
+    secrets:
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    sysctls:
+      - net.core.somaxconn=65535
+    hostname: zabbix-web
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      # - ./zabbix_data/web/ssl/:/etc/ssl/nginx/:ro
+      # - ./zabbix_data/web/modules/:/usr/share/zabbix/modules/
+      # - ./env/.ZBX_DB_CA_FILE:/run/secrets/root-ca.pem:ro
+      # - ./env/.ZBX_DB_CERT_FILE:/run/secrets/client-cert.pem:ro
+      # - ./env/.ZBX_DB_KEY_FILE:/run/secrets/client-key.pem:ro
+    ports:
+      - 127.0.0.1:8080:8080
+    networks:
+      zbx_net_frontend:
+        aliases:
+          - zabbix-web
+      zbx_net_backend:
+        aliases:
+          - zabbix-web
+
+  zabbix-agent:
+    image: zabbix/zabbix-agent:alpine-7.0.3
+    # image: zabbix/zabbix-agent:alpine-7.0-latest
+    container_name: zabbix-agent
+    restart: on-failure
+    stop_grace_period: 5s
+    user: zabbix:zabbix
+    privileged: true
+    pid: "host"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      mode: global
+    hostname: zabbix-agent
+    env_file:
+      - ./env/.env_agent
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      # - ./zabbix_data/agent/etc/:/etc/zabbix/zabbix_agentd.d/
+      # - ./zabbix_data/agent/modules/:/var/lib/zabbix/modules
+      # - ./zabbix_data/agent/enc/:/var/lib/zabbix/enc/
+      # - ./zabbix_data/agent/ssh_keys/:/var/lib/zabbix/ssh_keys/
+    networks:
+      zbx_net_backend:
+        aliases:
+          - zabbix-agent
+          - agent
+
+### SECRETS ###
+secrets:
+  POSTGRES_USER:
+    file: ./env/.POSTGRES_USER
+  POSTGRES_PASSWORD:
+    file: ./env/.POSTGRES_PASSWORD
