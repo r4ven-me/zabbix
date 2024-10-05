@@ -1,0 +1,5 @@
+Cmnd_Alias ZBX = \
+    /usr/bin/docker compose -f /opt/zabbix/docker-compose.yml up, \
+    /usr/bin/docker compose -f /opt/zabbix/docker-compose.yml down
+
+zabbix ALL = (:docker) NOPASSWD: ZBX

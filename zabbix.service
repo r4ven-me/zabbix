@@ -1,0 +1,15 @@
+[Unit]
+Description=Zabbix service
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+RestartSec=5
+User=zabbix
+Group=zabbix
+ExecStart=/usr/bin/sudo --group=docker /usr/bin/docker compose -f /opt/zabbix/docker-compose.yml up
+ExecStop=/usr/bin/sudo --group=docker /usr/bin/docker compose -f /opt/zabbix/docker-compose.yml down
+
+[Install]
+WantedBy=multi-user.target
