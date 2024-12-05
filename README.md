@@ -1,5 +1,3 @@
-![Install Zabbix 7 + TimescaleDB monitoring server in docker](https://r4ven.me/wp-content/uploads/2024/09/zabbix.resized-1038x576.png)
-
 # Install Zabbix 7 + TimescaleDB monitoring server in docker
 
 ### Greetings!
